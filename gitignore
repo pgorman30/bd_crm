@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Streamlit cache
+.streamlit/
+
+# Database
+*.sqlite
+*.db
+
+# Mac
+.DS_Store
