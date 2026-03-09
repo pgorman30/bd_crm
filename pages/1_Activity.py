@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from sqlalchemy import select, desc
+from sqlalchemy.orm import selectinload
 from db.database import SessionLocal
 from db.models import Activity, Company, Deal, Campaign
 
@@ -9,13 +10,27 @@ st.set_page_config(page_title="Activity", layout="wide")
 st.title("Activity Log")
 
 with SessionLocal() as session:
-    companies = session.execute(select(Company).order_by(Company.name)).scalars().all()
-    deals = session.execute(select(Deal).order_by(desc(Deal.created_at))).scalars().all()
-    campaigns = session.execute(select(Campaign).order_by(desc(Campaign.created_at))).scalars().all()
+    companies = session.execute(
+        select(Company).order_by(Company.name)
+    ).scalars().all()
 
-company_map = {c.name: c.id for c in companies}
-deal_map = {f"{d.company.name} — {d.name} (#{d.id})": d.id for d in deals}
-campaign_map = {f"{c.name} ({c.platform}) (#{c.id})": c.id for c in campaigns}
+    deals = session.execute(
+        select(Deal).options(selectinload(Deal.company)).order_by(desc(Deal.created_at))
+    ).scalars().all()
+
+    campaigns = session.execute(
+        select(Campaign).order_by(desc(Campaign.created_at))
+    ).scalars().all()
+
+    company_map = {c.name: c.id for c in companies}
+    deal_map = {
+        f"{d.company.name if d.company else 'No Company'} — {d.name} (#{d.id})": d.id
+        for d in deals
+    }
+    campaign_map = {
+        f"{c.name} ({c.platform}) (#{c.id})": c.id
+        for c in campaigns
+    }
 
 
 def quick_log(activity_type: str, outcome: str):
@@ -109,23 +124,30 @@ st.subheader("Recent activity (last 200)")
 
 with SessionLocal() as session:
     rows = session.execute(
-        select(Activity).order_by(desc(Activity.happened_at)).limit(200)
+        select(Activity)
+        .options(
+            selectinload(Activity.company),
+            selectinload(Activity.deal),
+            selectinload(Activity.campaign),
+        )
+        .order_by(desc(Activity.happened_at))
+        .limit(200)
     ).scalars().all()
 
-data = []
-for r in rows:
-    data.append(
-        {
-            "When": r.happened_at,
-            "Type": r.type,
-            "Outcome": r.outcome,
-            "Source": r.source,
-            "Company": r.company.name if r.company else "",
-            "Deal": f"{r.deal.name}" if r.deal else "",
-            "Campaign": f"{r.campaign.name}" if r.campaign else "",
-            "Counts KPI": r.counts_for_kpi,
-            "Notes": (r.notes or "")[:120],
-        }
-    )
+    data = []
+    for r in rows:
+        data.append(
+            {
+                "When": r.happened_at,
+                "Type": r.type,
+                "Outcome": r.outcome,
+                "Source": r.source,
+                "Company": r.company.name if r.company else "",
+                "Deal": r.deal.name if r.deal else "",
+                "Campaign": r.campaign.name if r.campaign else "",
+                "Counts KPI": r.counts_for_kpi,
+                "Notes": (r.notes or "")[:120],
+            }
+        )
 
 st.dataframe(pd.DataFrame(data), use_container_width=True)
